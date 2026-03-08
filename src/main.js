@@ -81,7 +81,14 @@ function clamp(v, min, max) {
 }
 
 function laneX(index) {
-  return canvas.width * game.lanes[index];
+  const clampedIndex = clamp(index, 0, game.lanes.length - 1);
+  const leftLane = Math.floor(clampedIndex);
+  const rightLane = Math.ceil(clampedIndex);
+  const blend = clampedIndex - leftLane;
+  const leftX = game.lanes[leftLane];
+  const rightX = game.lanes[rightLane];
+
+  return canvas.width * (leftX + (rightX - leftX) * blend);
 }
 
 function resetRun() {
@@ -257,7 +264,13 @@ function update(dt) {
   if (game.input.left) game.player.lane -= dt * 6.4;
   if (game.input.right) game.player.lane += dt * 6.4;
   game.player.lane = clamp(game.player.lane, 0, 2);
-  game.player.x += (laneX(game.player.lane) - game.player.x) * Math.min(1, dt * 12);
+
+  const targetPlayerX = laneX(game.player.lane);
+  if (!Number.isFinite(game.player.x)) {
+    game.player.x = targetPlayerX;
+  } else {
+    game.player.x += (targetPlayerX - game.player.x) * Math.min(1, dt * 12);
+  }
 
   game.traffic.forEach((car) => {
     car.y += car.speed * dt;
