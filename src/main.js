@@ -25,7 +25,7 @@ if (tg) {
   tg.ready();
   tg.expand();
   tg.enableClosingConfirmation();
-  document.documentElement.style.setProperty('--tg-bg', tg.themeParams.bg_color || '#0d120d');
+  document.documentElement.style.setProperty('--tg-bg', tg.themeParams.bg_color || '#0f1620');
 }
 
 const playerName = tg?.initDataUnsafe?.user?.first_name || 'Guest Driver';
@@ -34,23 +34,33 @@ playerNameLabel.textContent = playerName;
 const state = loadState();
 let remoteConfig = null;
 
+const road = {
+  horizonY: 126,
+  baseY: canvas.height + 10,
+  widthTop: 126,
+  widthBottom: 318,
+  shoulderTop: 16,
+  shoulderBottom: 34,
+  lanePadding: 28,
+  lanePositions: [0.2, 0.5, 0.8],
+};
+
 const game = {
   mode: 'idle',
   elapsed: 0,
   score: 0,
-  speed: 280,
+  speed: 190,
   intensity: 1,
   roadOffset: 0,
   spawnTimer: 0,
   nearMissTimer: 0,
-  lanes: [0.27, 0.5, 0.73],
   input: { left: false, right: false },
   player: {
     lane: 1,
     x: canvas.width * 0.5,
-    y: canvas.height - 130,
-    width: 62,
-    height: 100,
+    y: canvas.height - 118,
+    width: 74,
+    height: 122,
     bob: 0,
   },
   traffic: [],
@@ -76,34 +86,75 @@ function syncLabels() {
   finalBestValue.textContent = `${state.localBest}`;
 }
 
-function clamp(v, min, max) {
-  return Math.min(max, Math.max(min, v));
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
-function laneX(index) {
-  const clampedIndex = clamp(index, 0, game.lanes.length - 1);
-  const leftLane = Math.floor(clampedIndex);
-  const rightLane = Math.ceil(clampedIndex);
-  const blend = clampedIndex - leftLane;
-  const leftX = game.lanes[leftLane];
-  const rightX = game.lanes[rightLane];
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
 
-  return canvas.width * (leftX + (rightX - leftX) * blend);
+function easeOutQuad(t) {
+  return 1 - (1 - t) * (1 - t);
+}
+
+function roadProgressAt(y) {
+  return clamp((y - road.horizonY) / (road.baseY - road.horizonY), 0, 1);
+}
+
+function roadWidthAt(y) {
+  return lerp(road.widthTop, road.widthBottom, easeOutQuad(roadProgressAt(y)));
+}
+
+function roadShoulderAt(y) {
+  return lerp(road.shoulderTop, road.shoulderBottom, easeOutQuad(roadProgressAt(y)));
+}
+
+function roadCenterXAt() {
+  return canvas.width * 0.5;
+}
+
+function roadEdgesAt(y) {
+  const center = roadCenterXAt(y);
+  const half = roadWidthAt(y) / 2;
+  return { left: center - half, right: center + half, center };
+}
+
+function laneCenterAt(laneIndex, y) {
+  const clampedLane = clamp(laneIndex, 0, road.lanePositions.length - 1);
+  const leftLane = Math.floor(clampedLane);
+  const rightLane = Math.ceil(clampedLane);
+  const blend = clampedLane - leftLane;
+  const leftT = road.lanePositions[leftLane];
+  const rightT = road.lanePositions[rightLane];
+  const laneT = lerp(leftT, rightT, blend);
+  const roadWidth = roadWidthAt(y) - road.lanePadding * 2;
+  const left = roadCenterXAt(y) - roadWidth / 2;
+  return left + roadWidth * laneT;
+}
+
+function trafficScaleAt(y) {
+  const t = roadProgressAt(y);
+  return lerp(0.52, 1.08, easeOutQuad(t));
+}
+
+function playerX() {
+  return laneCenterAt(game.player.lane, game.player.y + 10);
 }
 
 function resetRun() {
   game.mode = 'playing';
   game.elapsed = 0;
   game.score = 0;
-  game.speed = 280;
+  game.speed = 190;
   game.intensity = 1;
   game.roadOffset = 0;
-  game.spawnTimer = 0.15;
+  game.spawnTimer = 1.15;
   game.nearMissTimer = 0;
   game.traffic = [];
   game.particles = [];
   game.player.lane = 1;
-  game.player.x = laneX(1);
+  game.player.x = playerX();
   game.player.bob = 0;
 
   hud.classList.remove('hidden');
@@ -117,7 +168,7 @@ function resetRun() {
 function updateHud() {
   scoreValue.textContent = `${Math.floor(game.score)}`;
   bestValue.textContent = `${state.localBest}`;
-  speedValue.textContent = `${(game.speed / 280).toFixed(1)}x`;
+  speedValue.textContent = `${(game.speed / 190).toFixed(1)}x`;
 }
 
 function openStart() {
@@ -140,34 +191,57 @@ function openGameOver() {
   if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
 }
 
-function addParticle(x, y, speed, size, alpha = 1) {
-  game.particles.push({ x, y, speed, size, alpha });
+function addParticle(x, y, speed, size, alpha = 1, hue = 'rgba(255, 232, 140,') {
+  game.particles.push({ x, y, speed, size, alpha, hue });
+}
+
+function canSpawnInLane(lane) {
+  return !game.traffic.some((car) => {
+    const sameLane = car.lane === lane && car.y < 250;
+    const adjacentLane = Math.abs(car.lane - lane) === 1 && car.y < 180;
+    return sameLane || adjacentLane;
+  });
 }
 
 function spawnTraffic() {
-  const lane = Math.floor(Math.random() * 3);
+  const candidateLanes = [0, 1, 2].filter(canSpawnInLane);
+  if (!candidateLanes.length) return;
+
+  const lane = candidateLanes[Math.floor(Math.random() * candidateLanes.length)];
   const palette = [
-    ['#9cff98', '#3e6f41'],
-    ['#fffb8d', '#816f32'],
-    ['#95d7ff', '#285777'],
-    ['#ff9d94', '#6d3131'],
-  ][Math.floor(Math.random() * 4)];
+    ['#ffd88b', '#be6c33', '#fff2cc'],
+    ['#7fd7ff', '#2f68b3', '#d8f3ff'],
+    ['#ff9aa2', '#b8425c', '#ffe1e4'],
+    ['#b8ff9f', '#4b9b58', '#eefede'],
+    ['#d6b3ff', '#6a4cc4', '#f4eaff'],
+  ][Math.floor(Math.random() * 5)];
+
+  const roofSeed = Math.random();
+  const startY = road.horizonY - 92 + Math.random() * 18;
+  const scale = trafficScaleAt(startY);
 
   game.traffic.push({
     lane,
-    x: laneX(lane),
-    y: -120,
-    width: 58 + Math.random() * 10,
-    height: 94 + Math.random() * 16,
-    speed: game.speed * (0.72 + Math.random() * 0.4),
-    color: palette,
+    y: startY,
+    width: 56 * scale,
+    height: 102 * scale,
+    speed: game.speed * (0.44 + Math.random() * 0.14),
+    colors: palette,
     passed: false,
+    sway: (roofSeed - 0.5) * 3,
   });
 }
 
 function crash() {
-  for (let i = 0; i < 24; i += 1) {
-    addParticle(game.player.x, game.player.y + 10, 140 + Math.random() * 220, 2 + Math.random() * 4, 1);
+  for (let i = 0; i < 26; i += 1) {
+    addParticle(
+      game.player.x + (Math.random() - 0.5) * 24,
+      game.player.y + 6,
+      120 + Math.random() * 240,
+      2 + Math.random() * 5,
+      1,
+      i % 2 === 0 ? 'rgba(255, 207, 110,' : 'rgba(255, 120, 120,'
+    );
   }
 
   if (game.score > state.localBest) {
@@ -244,58 +318,66 @@ function submitScore() {
   }
 }
 
-function update(dt) {
-  if (game.mode !== 'playing') return;
-
-  game.elapsed += dt;
-  game.speed += dt * 10;
-  game.intensity = 1 + game.elapsed / 18;
-  game.score += dt * 18 * game.intensity;
-  game.player.bob += dt * 8;
-  game.roadOffset += dt * game.speed * 0.9;
-  game.spawnTimer -= dt;
-  game.nearMissTimer = Math.max(0, game.nearMissTimer - dt);
-
-  if (game.spawnTimer <= 0) {
-    spawnTraffic();
-    game.spawnTimer = clamp(0.88 - game.elapsed * 0.02, 0.34, 0.88);
-  }
-
-  if (game.input.left) game.player.lane -= dt * 6.4;
-  if (game.input.right) game.player.lane += dt * 6.4;
-  game.player.lane = clamp(game.player.lane, 0, 2);
-
-  const targetPlayerX = laneX(game.player.lane);
-  if (!Number.isFinite(game.player.x)) {
-    game.player.x = targetPlayerX;
-  } else {
-    game.player.x += (targetPlayerX - game.player.x) * Math.min(1, dt * 12);
-  }
-
+function updateTraffic(dt) {
   game.traffic.forEach((car) => {
     car.y += car.speed * dt;
+    const scale = trafficScaleAt(car.y);
+    car.width = 56 * scale;
+    car.height = 102 * scale;
+    car.x = laneCenterAt(car.lane, car.y) + car.sway;
 
-    if (!car.passed && car.y > game.player.y + 40) {
+    if (!car.passed && car.y > game.player.y + 36) {
       car.passed = true;
       game.score += 45;
       if (game.nearMissTimer <= 0) {
         game.nearMissTimer = 0.4;
-        for (let i = 0; i < 6; i += 1) addParticle(car.x, car.y + 30, 80 + Math.random() * 80, 1 + Math.random() * 2, 0.7);
+        for (let i = 0; i < 8; i += 1) {
+          addParticle(car.x, car.y + 24, 70 + Math.random() * 90, 1 + Math.random() * 2, 0.65, 'rgba(215, 243, 255,');
+        }
       }
     }
 
     const dx = Math.abs(car.x - game.player.x);
     const dy = Math.abs(car.y - game.player.y);
-    if (dx < (car.width + game.player.width) * 0.42 && dy < (car.height + game.player.height) * 0.42) {
+    const hitW = (car.width + game.player.width) * 0.28;
+    const hitH = (car.height + game.player.height) * 0.31;
+    if (dx < hitW && dy < hitH) {
       crash();
     }
   });
 
-  game.traffic = game.traffic.filter((car) => car.y < canvas.height + 160);
+  game.traffic = game.traffic.filter((car) => car.y < canvas.height + 180);
+}
+
+function update(dt) {
+  if (game.mode !== 'playing') return;
+
+  game.elapsed += dt;
+  game.speed += dt * 6.5;
+  game.intensity = 1 + game.elapsed / 18;
+  game.score += dt * 18 * game.intensity;
+  game.player.bob += dt * 8;
+  game.roadOffset += dt * game.speed;
+  game.spawnTimer -= dt;
+  game.nearMissTimer = Math.max(0, game.nearMissTimer - dt);
+
+  if (game.spawnTimer <= 0) {
+    spawnTraffic();
+    game.spawnTimer = clamp(1.34 - game.elapsed * 0.016, 0.72, 1.34);
+  }
+
+  if (game.input.left) game.player.lane -= dt * 5.4;
+  if (game.input.right) game.player.lane += dt * 5.4;
+  game.player.lane = clamp(game.player.lane, 0, 2);
+
+  const targetPlayerX = playerX();
+  game.player.x += (targetPlayerX - game.player.x) * Math.min(1, dt * 10);
+
+  updateTraffic(dt);
 
   game.particles.forEach((p) => {
     p.y += p.speed * dt;
-    p.alpha -= dt * 1.2;
+    p.alpha -= dt * 1.35;
   });
   game.particles = game.particles.filter((p) => p.alpha > 0);
 
@@ -307,7 +389,7 @@ function update(dt) {
   updateHud();
 }
 
-function drawRoundedRect(x, y, width, height, radius, fill) {
+function roundedRectPath(x, y, width, height, radius) {
   ctx.beginPath();
   ctx.moveTo(x + radius, y);
   ctx.arcTo(x + width, y, x + width, y + height, radius);
@@ -315,98 +397,179 @@ function drawRoundedRect(x, y, width, height, radius, fill) {
   ctx.arcTo(x, y + height, x, y, radius);
   ctx.arcTo(x, y, x + width, y, radius);
   ctx.closePath();
+}
+
+function fillRoundedRect(x, y, width, height, radius, fill) {
+  roundedRectPath(x, y, width, height, radius);
   ctx.fillStyle = fill;
   ctx.fill();
 }
 
 function drawCar(x, y, width, height, colors, isPlayer = false) {
-  const [light, dark] = colors;
-  drawRoundedRect(x - width / 2, y - height / 2, width, height, 14, dark);
-  drawRoundedRect(x - width * 0.38, y - height * 0.3, width * 0.76, height * 0.55, 12, light);
-  drawRoundedRect(x - width * 0.16, y - height * 0.16, width * 0.32, height * 0.26, 8, '#ecffe4');
-  ctx.fillStyle = 'rgba(0,0,0,0.34)';
-  ctx.fillRect(x - width * 0.52, y - height * 0.34, width * 0.14, height * 0.22);
-  ctx.fillRect(x + width * 0.38, y - height * 0.34, width * 0.14, height * 0.22);
-  ctx.fillRect(x - width * 0.52, y + height * 0.12, width * 0.14, height * 0.22);
-  ctx.fillRect(x + width * 0.38, y + height * 0.12, width * 0.14, height * 0.22);
+  const [bodyLight, bodyDark, glass] = colors;
+  const radius = Math.max(10, width * 0.18);
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+  ctx.beginPath();
+  ctx.ellipse(0, height * 0.45, width * 0.56, height * 0.18, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  fillRoundedRect(-width / 2, -height / 2, width, height, radius, bodyDark);
+  fillRoundedRect(-width * 0.4, -height * 0.28, width * 0.8, height * 0.58, radius * 0.7, bodyLight);
+  fillRoundedRect(-width * 0.18, -height * 0.11, width * 0.36, height * 0.24, radius * 0.5, glass);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.26)';
+  fillRoundedRect(-width * 0.24, -height * 0.34, width * 0.18, height * 0.1, radius * 0.4, 'rgba(255,255,255,0.22)');
+
+  ctx.fillStyle = '#101215';
+  fillRoundedRect(-width * 0.58, -height * 0.3, width * 0.16, height * 0.22, 5, '#101215');
+  fillRoundedRect(width * 0.42, -height * 0.3, width * 0.16, height * 0.22, 5, '#101215');
+  fillRoundedRect(-width * 0.58, height * 0.1, width * 0.16, height * 0.22, 5, '#101215');
+  fillRoundedRect(width * 0.42, height * 0.1, width * 0.16, height * 0.22, 5, '#101215');
+
+  fillRoundedRect(-width * 0.3, -height * 0.47, width * 0.2, height * 0.06, 4, isPlayer ? '#fff6ab' : '#ffd58a');
+  fillRoundedRect(width * 0.1, -height * 0.47, width * 0.2, height * 0.06, 4, isPlayer ? '#fff6ab' : '#ffd58a');
+  fillRoundedRect(-width * 0.3, height * 0.39, width * 0.2, height * 0.06, 4, isPlayer ? '#ff8d8d' : '#ff9c9c');
+  fillRoundedRect(width * 0.1, height * 0.39, width * 0.2, height * 0.06, 4, isPlayer ? '#ff8d8d' : '#ff9c9c');
 
   if (isPlayer) {
-    ctx.strokeStyle = 'rgba(205,255,177,0.65)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x - width / 2 - 4, y - height / 2 - 4, width + 8, height + 8);
+    ctx.strokeStyle = 'rgba(255, 244, 170, 0.8)';
+    ctx.lineWidth = 2.5;
+    roundedRectPath(-width / 2 - 4, -height / 2 - 4, width + 8, height + 8, radius + 2);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+function drawBackground() {
+  const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  sky.addColorStop(0, '#172235');
+  sky.addColorStop(0.36, '#25375a');
+  sky.addColorStop(0.37, '#33456e');
+  sky.addColorStop(1, '#0b1119');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const glow = ctx.createRadialGradient(canvas.width * 0.5, 134, 12, canvas.width * 0.5, 134, 210);
+  glow.addColorStop(0, 'rgba(255, 214, 132, 0.35)');
+  glow.addColorStop(0.5, 'rgba(255, 181, 118, 0.12)');
+  glow.addColorStop(1, 'rgba(255, 181, 118, 0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  for (let i = 0; i < 32; i += 1) {
+    const x = (i * 53) % canvas.width;
+    const y = 26 + ((i * 37) % 150);
+    const alpha = 0.18 + (i % 4) * 0.08;
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.fillRect(x, y, i % 3 === 0 ? 2 : 1, i % 5 === 0 ? 2 : 1);
+  }
+
+  ctx.fillStyle = '#16202c';
+  for (let i = 0; i < 6; i += 1) {
+    const w = 34 + i * 16;
+    const h = 52 + (i % 3) * 28;
+    const x = 12 + i * 66;
+    ctx.fillRect(x, road.horizonY - h + 6, w, h);
+  }
+}
+
+function drawRoad() {
+  const topEdges = roadEdgesAt(road.horizonY);
+  const bottomEdges = roadEdgesAt(road.baseY);
+  const topShoulder = roadShoulderAt(road.horizonY);
+  const bottomShoulder = roadShoulderAt(road.baseY);
+
+  ctx.fillStyle = '#27452d';
+  ctx.fillRect(0, road.horizonY, canvas.width, canvas.height - road.horizonY);
+
+  ctx.beginPath();
+  ctx.moveTo(topEdges.left - topShoulder, road.horizonY);
+  ctx.lineTo(topEdges.right + topShoulder, road.horizonY);
+  ctx.lineTo(bottomEdges.right + bottomShoulder, road.baseY);
+  ctx.lineTo(bottomEdges.left - bottomShoulder, road.baseY);
+  ctx.closePath();
+  ctx.fillStyle = '#567044';
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.moveTo(topEdges.left, road.horizonY);
+  ctx.lineTo(topEdges.right, road.horizonY);
+  ctx.lineTo(bottomEdges.right, road.baseY);
+  ctx.lineTo(bottomEdges.left, road.baseY);
+  ctx.closePath();
+  ctx.fillStyle = '#2f3642';
+  ctx.fill();
+
+  const asphaltShade = ctx.createLinearGradient(0, road.horizonY, 0, road.baseY);
+  asphaltShade.addColorStop(0, 'rgba(255,255,255,0.02)');
+  asphaltShade.addColorStop(1, 'rgba(0,0,0,0.18)');
+  ctx.fillStyle = asphaltShade;
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(245, 236, 187, 0.95)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(topEdges.left + 2, road.horizonY);
+  ctx.lineTo(bottomEdges.left + 4, road.baseY);
+  ctx.moveTo(topEdges.right - 2, road.horizonY);
+  ctx.lineTo(bottomEdges.right - 4, road.baseY);
+  ctx.stroke();
+
+  for (let y = road.horizonY + 10; y < canvas.height + 80; y += 58) {
+    const dashY = y + (game.roadOffset % 58);
+    const t = roadProgressAt(dashY);
+    const dashH = lerp(10, 26, t);
+    const dashW = lerp(3, 8, t);
+
+    [0.35, 0.65].forEach((laneMark) => {
+      const innerWidth = roadWidthAt(dashY) - road.lanePadding * 2;
+      const x = roadCenterXAt(dashY) - innerWidth / 2 + innerWidth * laneMark - dashW / 2;
+      ctx.fillStyle = 'rgba(245, 245, 235, 0.85)';
+      ctx.fillRect(x, dashY, dashW, dashH);
+    });
+  }
+
+  for (let y = road.horizonY + 6; y < canvas.height + 80; y += 46) {
+    const stripeY = y + ((game.roadOffset * 0.82) % 46);
+    const t = roadProgressAt(stripeY);
+    const stripeW = lerp(6, 12, t);
+    const stripeH = lerp(10, 18, t);
+    const edges = roadEdgesAt(stripeY);
+    const shoulder = roadShoulderAt(stripeY);
+    ctx.fillStyle = '#7dc06c';
+    ctx.fillRect(edges.left - shoulder * 0.72, stripeY, stripeW, stripeH);
+    ctx.fillRect(edges.right + shoulder * 0.1, stripeY, stripeW, stripeH);
   }
 }
 
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  gradient.addColorStop(0, '#142014');
-  gradient.addColorStop(1, '#090c09');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawBackground();
+  drawRoad();
 
-  ctx.save();
-  ctx.globalAlpha = 0.1;
-  for (let i = 0; i < 24; i += 1) {
-    ctx.fillStyle = i % 2 === 0 ? '#c9ffb7' : '#99d596';
-    ctx.fillRect(18 * (i % 24), 0, 1, canvas.height);
-  }
-  ctx.restore();
+  game.traffic
+    .slice()
+    .sort((a, b) => a.y - b.y)
+    .forEach((car) => drawCar(car.x, car.y, car.width, car.height, car.colors));
 
-  const roadTop = 70;
-  const roadBottom = canvas.height;
-  const roadWidthTop = 150;
-  const roadWidthBottom = 320;
-  const roadCenter = canvas.width / 2;
-
-  ctx.beginPath();
-  ctx.moveTo(roadCenter - roadWidthTop / 2, roadTop);
-  ctx.lineTo(roadCenter + roadWidthTop / 2, roadTop);
-  ctx.lineTo(roadCenter + roadWidthBottom / 2, roadBottom);
-  ctx.lineTo(roadCenter - roadWidthBottom / 2, roadBottom);
-  ctx.closePath();
-  ctx.fillStyle = '#232b23';
-  ctx.fill();
-
-  ctx.strokeStyle = 'rgba(210, 255, 190, 0.2)';
-  ctx.lineWidth = 3;
-  ctx.stroke();
-
-  for (let y = -60; y < canvas.height + 80; y += 72) {
-    const dashY = y + (game.roadOffset % 72);
-    const t = clamp((dashY - roadTop) / (roadBottom - roadTop), 0, 1);
-    const width = 6 + t * 12;
-    const height = 16 + t * 26;
-    const laneSpread = 24 + t * 38;
-    ctx.fillStyle = 'rgba(233, 255, 222, 0.58)';
-    ctx.fillRect(roadCenter - laneSpread - width / 2, dashY, width, height);
-    ctx.fillRect(roadCenter + laneSpread - width / 2, dashY, width, height);
-  }
-
-  for (let y = -40; y < canvas.height + 60; y += 56) {
-    const stripeY = y + (game.roadOffset * 1.2 % 56);
-    const t = clamp((stripeY - roadTop) / (roadBottom - roadTop), 0, 1);
-    const sideX = roadCenter - (roadWidthTop / 2 + t * ((roadWidthBottom - roadWidthTop) / 2));
-    const stripeW = 8 + t * 6;
-    const stripeH = 14 + t * 18;
-    ctx.fillStyle = '#5d785d';
-    ctx.fillRect(sideX - 22, stripeY, stripeW, stripeH);
-    ctx.fillRect(canvas.width - sideX + 14, stripeY, stripeW, stripeH);
-  }
-
-  game.traffic.forEach((car) => drawCar(car.x, car.y, car.width, car.height, car.color));
-
-  const playerPulse = Math.sin(game.player.bob) * 3;
-  drawCar(game.player.x, game.player.y + playerPulse, game.player.width, game.player.height, ['#efffb0', '#7cb55d'], true);
+  const playerPulse = Math.sin(game.player.bob) * 2.5;
+  drawCar(game.player.x, game.player.y + playerPulse, game.player.width, game.player.height, ['#ffe483', '#c46d36', '#fff5cf'], true);
 
   game.particles.forEach((p) => {
-    ctx.fillStyle = `rgba(210,255,184,${p.alpha})`;
-    ctx.fillRect(p.x, p.y, p.size, p.size * 2);
+    ctx.fillStyle = `${p.hue}${p.alpha})`;
+    ctx.fillRect(p.x, p.y, p.size, p.size * 1.8);
   });
 
-  ctx.fillStyle = 'rgba(204,255,180,0.08)';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (game.mode === 'playing') {
+    ctx.fillStyle = 'rgba(255, 245, 201, 0.025)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
 }
 
 function loop(timestamp) {
@@ -417,11 +580,17 @@ function loop(timestamp) {
   requestAnimationFrame(loop);
 }
 
-function bindSteering(button, direction, isDown) {
+function nudgeLane(direction) {
+  const delta = direction === 'left' ? -0.9 : 0.9;
+  game.player.lane = clamp(game.player.lane + delta, 0, 2);
+}
+
+function bindSteering(button, direction) {
   const downHandler = (event) => {
     event.preventDefault();
     game.input[direction] = true;
     if (game.mode !== 'playing') resetRun();
+    nudgeLane(direction);
   };
   const upHandler = (event) => {
     event.preventDefault();
@@ -453,13 +622,17 @@ document.getElementById('shareButton').addEventListener('click', () => {
 });
 
 window.addEventListener('keydown', (event) => {
+  if (event.repeat) return;
+
   if (['ArrowLeft', 'a', 'A'].includes(event.key)) {
     game.input.left = true;
     if (game.mode !== 'playing') resetRun();
+    nudgeLane('left');
   }
   if (['ArrowRight', 'd', 'D'].includes(event.key)) {
     game.input.right = true;
     if (game.mode !== 'playing') resetRun();
+    nudgeLane('right');
   }
   if ([' ', 'Enter'].includes(event.key) && game.mode !== 'playing') {
     resetRun();
@@ -507,4 +680,5 @@ syncLabels();
 renderBoard();
 openStart();
 loadRemoteBoard();
+window.__NPR = { game, state, road };
 requestAnimationFrame(loop);
