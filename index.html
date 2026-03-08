@@ -33,6 +33,14 @@
             <span class="label">speed</span>
             <strong id="speedValue">1x</strong>
           </div>
+          <div class="hud-chip">
+            <span class="label">phase</span>
+            <strong id="phaseValue">phase 1</strong>
+          </div>
+          <div class="hud-chip">
+            <span class="label">combo</span>
+            <strong id="comboValue">—</strong>
+          </div>
         </div>
 
         <section id="startScreen" class="screen-card overlay visible">
@@ -49,13 +57,24 @@
               <strong id="startBestValue">0</strong>
             </div>
           </div>
+          <div class="callout" id="challengeBanner">Open from Telegram for challenge links and cloud boards.</div>
+          <div class="stat-grid compact-grid">
+            <div>
+              <span>daily mission</span>
+              <strong id="missionSlot">Survive 45s without a crash.</strong>
+            </div>
+            <div>
+              <span>build</span>
+              <strong id="versionStamp">v0.2.0</strong>
+            </div>
+          </div>
           <div class="instructions">
-            <p><b>Keyboard:</b> ← → or A / D to steer, Space / Enter to start</p>
-            <p><b>Touch:</b> hold left or right pads, tap boost to start again</p>
+            <p><b>Keyboard:</b> ← → or A / D to steer, Space / Enter to start, P to pause</p>
+            <p><b>Touch:</b> hold left or right pads, tap center to start or restart</p>
           </div>
           <div class="button-row">
             <button id="startButton" class="primary-button">Start engine</button>
-            <button id="shareButton" class="ghost-button">Share score card</button>
+            <button id="shareButton" class="ghost-button">Challenge friend</button>
           </div>
           <div class="leaderboard-panel">
             <div class="leaderboard-head">
@@ -80,11 +99,24 @@
               <strong id="finalBestValue">0</strong>
             </div>
           </div>
+          <p id="submitStatus" class="status-line">Ready to submit score.</p>
           <div class="button-row">
             <button id="restartButton" class="primary-button">Restart run</button>
-            <button id="submitScoreButton" class="ghost-button">Save to board</button>
+            <button id="submitScoreButton" class="ghost-button">Submit score</button>
           </div>
         </section>
+
+        <section id="pauseScreen" class="screen-card overlay hidden">
+          <div class="badge">paused</div>
+          <h2>Run paused</h2>
+          <p id="pauseReason" class="subtitle">Game paused</p>
+          <div class="button-row">
+            <button id="resumeButton" class="primary-button">Resume</button>
+            <button id="restartButtonPaused" class="ghost-button">Restart instead</button>
+          </div>
+        </section>
+
+        <div id="toast" class="toast hidden" aria-live="polite"></div>
 
         <div class="controls-wrap">
           <button id="touchLeft" class="touch-pad left" aria-label="Steer left">◀</button>
