@@ -9,7 +9,7 @@ const TRAFFIC_PALETTES = [
   ['#d6b3ff', '#6a4cc4', '#f4eaff'],
 ];
 
-export function createGameEngine({ canvas, ctx, road, scoring, onCrash, onNearMiss, onMilestone }) {
+export function createGameEngine({ canvas, ctx, road, scoring, onCrash, onNearMiss, onMilestone, onFrame }) {
   const state = {
     mode: 'idle',
     elapsed: 0,
@@ -394,6 +394,7 @@ export function createGameEngine({ canvas, ctx, road, scoring, onCrash, onNearMi
     state.lastTime = timestamp;
     update(dt);
     render();
+    onFrame?.(getViewModel());
     requestAnimationFrame(tick);
   }
 

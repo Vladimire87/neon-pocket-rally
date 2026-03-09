@@ -113,6 +113,12 @@ export async function bootstrap() {
   const toast = createToast(elements.toast);
   const scoring = createScoringSystem();
 
+  function renderLiveHud(view = engine.getViewModel()) {
+    if (machine.getState() !== APP_STATES.PLAYING) return;
+    const best = storage.read().bests.local;
+    hud.render({ ...view, best });
+  }
+
   function isSameUtcDay(left, right) {
     return (
       left.getUTCFullYear() === right.getUTCFullYear() &&
@@ -237,6 +243,9 @@ export async function bootstrap() {
     onMilestone({ elapsed, phase }) {
       if (elapsed % 15 === 0) toast.show(`${phase.label.toUpperCase()} · ${elapsed}s`, 'info', 1000);
     },
+    onFrame(view) {
+      renderLiveHud(view);
+    },
   });
 
   function render() {
@@ -271,6 +280,7 @@ export async function bootstrap() {
     } else if (machine.getState() === APP_STATES.PLAYING) {
       screens.hideOverlays();
       hud.show();
+      renderLiveHud(view);
     } else if (machine.getState() === APP_STATES.PAUSED) {
       screens.renderPause({ reason: 'Telegram/app backgrounded. Tap restart or resume.' });
       hud.hide();
