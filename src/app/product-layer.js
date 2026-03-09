@@ -104,5 +104,5 @@ export function evaluateChallenge(summary, challenge) {
 }
 
 export function getFirstRunMessage(hasRuns) {
-  return hasRuns ? 'Telegram rally build' : 'First run takes about 10 seconds';
+  return hasRuns ? 'Telegram rally build' : 'First run in under 10 seconds';
 }

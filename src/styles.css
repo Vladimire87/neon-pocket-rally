@@ -208,21 +208,14 @@ button {
   line-height: 1.4;
 }
 
-.hero-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin: 8px 0 14px;
+.feature-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 12px;
 }
 
-.hero-panel {
-  min-height: 122px;
-  background:
-    linear-gradient(180deg, rgba(255, 214, 129, 0.08), rgba(10, 15, 23, 0.62)),
-    rgba(10, 15, 23, 0.56);
-}
-
-.hero-panel span,
+.feature-pill,
 .leaderboard-row small,
 .leaderboard-empty strong {
   display: block;
@@ -230,21 +223,10 @@ button {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   font-size: 10px;
-}
-
-.hero-panel strong {
-  display: block;
-  margin-top: 8px;
-  margin-bottom: 8px;
-  font-size: 16px;
-  line-height: 1.35;
-}
-
-.hero-panel p {
-  margin: 0;
-  color: #ece6d2;
-  font-size: 13px;
-  line-height: 1.45;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .callout {
@@ -347,6 +329,8 @@ button {
   gap: 8px;
   color: #f2efe4;
   list-style: none;
+  max-height: 290px;
+  overflow-y: auto;
 }
 
 .leaderboard-list li {
@@ -436,18 +420,18 @@ button {
 
 .touch-pad {
   pointer-events: auto;
-  min-height: 68px;
-  border-radius: 20px;
+  min-height: 56px;
+  border-radius: 18px;
   color: var(--text);
   background: rgba(12, 18, 28, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.09);
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 800;
 }
 
 .touch-pad.center {
-  min-width: 84px;
+  min-width: 72px;
   border-radius: 999px;
 }
 
@@ -492,6 +476,10 @@ button {
   display: flex;
 }
 
+#startScreen {
+  justify-content: flex-start;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .touch-pad {
     opacity: 0.88;
@@ -501,10 +489,6 @@ button {
 @media (max-width: 560px) {
   .hud {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .hero-grid {
-    grid-template-columns: 1fr;
   }
 }
 
@@ -528,16 +512,42 @@ button {
   }
 
   .screen-card {
-    padding: 18px;
+    padding: 16px;
   }
 
   .button-row {
     grid-template-columns: 1fr;
+    margin: 10px 0 12px;
   }
 
   .controls-wrap {
-    bottom: 12px;
+    bottom: calc(8px + env(safe-area-inset-bottom));
     left: 12px;
     right: 12px;
+    gap: 8px;
+  }
+
+  .screen-card h1,
+  .screen-card h2 {
+    font-size: clamp(20px, 6vw, 28px);
+    margin: 10px 0 8px;
+  }
+
+  .subtitle,
+  .instructions p,
+  .status-line,
+  .callout {
+    font-size: 14px;
+    line-height: 1.45;
+    margin-bottom: 8px;
+  }
+
+  .stat-grid {
+    gap: 10px;
+    margin: 10px 0 12px;
+  }
+
+  .leaderboard-list {
+    max-height: 196px;
   }
 }

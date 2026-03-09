@@ -109,7 +109,7 @@ export function createGameEngine({ canvas, ctx, road, scoring, onCrash, onNearMi
     state.score = 0;
     state.speed = GAME_BALANCE.baseSpeed;
     state.roadOffset = 0;
-    state.spawnTimer = 1.05;
+    state.spawnTimer = 0.65;
     state.traffic = [];
     state.particles = [];
     state.combo = 1;
@@ -121,6 +121,17 @@ export function createGameEngine({ canvas, ctx, road, scoring, onCrash, onNearMi
     state.player.lane = 1;
     state.player.x = playerTargetX();
     state.player.bob = 0;
+    spawnTraffic();
+    for (let i = 0; i < 8; i += 1) {
+      addParticle(
+        state.player.x + (Math.random() - 0.5) * 18,
+        state.player.y + 34 + Math.random() * 26,
+        80 + Math.random() * 120,
+        2 + Math.random() * 2,
+        0.9,
+        'rgba(255, 214, 122,'
+      );
+    }
   }
 
   function pause() {

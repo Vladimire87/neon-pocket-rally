@@ -134,7 +134,7 @@ export async function bootstrap() {
 
     if (!todayRuns.length) {
       return {
-        missionText: `${mission.title}. ${mission.description}`,
+        missionText: mission.title,
         progressText: 'No attempt yet today.',
         completed: false,
       };
@@ -144,7 +144,7 @@ export async function bootstrap() {
       .sort((left, right) => Number(right.completed) - Number(left.completed) || right.progress - left.progress)[0];
 
     return {
-      missionText: `${mission.title}. ${mission.description}`,
+      missionText: mission.title,
       progressText: bestAttempt.completed ? `Completed today · ${bestAttempt.progressLabel}` : `Progress · ${bestAttempt.progressLabel}`,
       completed: bestAttempt.completed,
     };
@@ -247,7 +247,7 @@ export async function bootstrap() {
     if (machine.getState() === APP_STATES.MENU) {
       const store = storage.read();
       const mission = getDailyMissionProgress(store);
-      const boardEntries = buildVisibleBoard(store);
+      const boardEntries = buildVisibleBoard(store).slice(0, window.innerWidth <= 430 ? 4 : APP_CONFIG.leaderboard.limit);
       const hasRuns = getStoredRuns(store).length > 0 || store.bests.local > 0;
       screens.renderMenu({
         playerName: store.profile.name,
@@ -260,13 +260,13 @@ export async function bootstrap() {
         appVersion: APP_CONFIG.appVersion,
         heroBadge: getFirstRunMessage(hasRuns),
         heroSubtitle: currentChallenge
-          ? `Incoming challenge target: ${currentChallenge.targetScore}. Beat it, then share the rematch.`
-          : 'One-thumb score attack built for Telegram. Weave traffic, chain near misses, restart instantly.',
+          ? `Challenge target: ${currentChallenge.targetScore}. Beat it, then send the rematch.`
+          : 'Fast Telegram score attack. Dodge traffic, take near misses, restart instantly.',
         boardUpdatedAt: boardUpdatedText(store),
         activeBoardScope: currentBoardScope,
       });
-      elements.startButton.textContent = hasRuns ? 'Start run' : 'Start first run';
-      elements.shareButton.textContent = currentChallenge ? 'Share rematch' : 'Share challenge';
+      elements.startButton.textContent = hasRuns ? 'Start' : 'Start first run';
+      elements.shareButton.textContent = currentChallenge ? 'Rematch' : 'Challenge';
       hud.hide();
     } else if (machine.getState() === APP_STATES.PLAYING) {
       screens.hideOverlays();
@@ -369,13 +369,23 @@ export async function bootstrap() {
 
   async function startRun() {
     analytics.track('run_start', { telegram: telegram.isAvailable, deviceBucket: window.innerWidth < 430 ? 'mobile' : 'desktop' });
-    const run = await runService.start({ initData: telegram.getInitData(), appVersion: APP_CONFIG.appVersion });
-    sessionRun.set(run);
+    const localRun = runService.createLocalRun();
+    sessionRun.set(localRun);
     engine.reset();
     elements.submitStatus.textContent = 'Run active. Submit unlocks after crash.';
     machine.transition(APP_STATES.PLAYING);
     telegram.haptic('selectionChanged');
+    toast.show('Run live', 'info', 700);
     render();
+
+    runService
+      .start({ initData: telegram.getInitData(), appVersion: APP_CONFIG.appVersion, fallbackRun: localRun })
+      .then((run) => {
+        sessionRun.replaceIfCurrent(localRun.runId, run);
+      })
+      .catch((error) => {
+        logger.warn('run_start_background_failed', error);
+      });
   }
 
   function openMenu() {
