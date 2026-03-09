@@ -30,7 +30,7 @@ export function createLeaderboardService({ apiClient, storage, config, logger })
 
   async function fetchBoard(scope = BOARD_SCOPES.ALL_TIME) {
     const cfg = await loadConfig();
-    const fetchUrl = cfg.fetchUrl;
+    const fetchUrl = cfg.fetchUrl || cfg.leaderboardUrl;
     if (!fetchUrl) {
       return {
         entries: [],
@@ -49,10 +49,14 @@ export function createLeaderboardService({ apiClient, storage, config, logger })
       storage.update((state) => {
         state.leaderboardCache[scope] = entries;
         state.leaderboardCache.fetchedAt = new Date().toISOString();
-        state.leaderboardCache.modeLabel = 'cloud board online';
+        state.leaderboardCache.modeLabel = scope === BOARD_SCOPES.DAILY ? 'cloud today board' : 'cloud board online';
         return state;
       });
-      return { entries, modeLabel: 'cloud board online', remoteAvailable: true };
+      return {
+        entries,
+        modeLabel: scope === BOARD_SCOPES.DAILY ? 'cloud today board' : 'cloud board online',
+        remoteAvailable: true,
+      };
     } catch (error) {
       logger?.warn?.('leaderboard_fetch_failed', { scope, error });
       const cached = storage.read().leaderboardCache?.[scope] || [];

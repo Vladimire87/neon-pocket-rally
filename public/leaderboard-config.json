@@ -1,4 +1,5 @@
 {
   "fetchUrl": "",
-  "submitUrl": ""
+  "startUrl": "",
+  "finishUrl": ""
 }

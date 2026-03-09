@@ -44,9 +44,21 @@
         </div>
 
         <section id="startScreen" class="screen-card overlay visible">
-          <div class="badge">Telegram Web App ready</div>
+          <div id="heroBadge" class="badge">Telegram rally build</div>
           <h1>Neon Pocket Rally</h1>
-          <p class="subtitle">Game Boy soul. Modern polish. Survive the night traffic.</p>
+          <p id="heroSubtitle" class="subtitle">One-thumb score attack built for Telegram. Weave traffic, chain near misses, restart instantly.</p>
+          <div class="hero-grid">
+            <div class="hero-panel">
+              <span>session</span>
+              <strong>30-90 sec arcade runs</strong>
+              <p>Launch fast, learn in one try, keep chasing one better line.</p>
+            </div>
+            <div class="hero-panel">
+              <span>how to win</span>
+              <strong>Stay alive. Drive risky.</strong>
+              <p>Passing traffic scores. Near misses spike bonus points and combo pace.</p>
+            </div>
+          </div>
           <div class="stat-grid">
             <div>
               <span>pilot</span>
@@ -62,24 +74,30 @@
             <div>
               <span>daily mission</span>
               <strong id="missionSlot">Survive 45s without a crash.</strong>
+              <small id="missionProgress" class="support-copy">Fresh mission every day.</small>
             </div>
             <div>
               <span>build</span>
               <strong id="versionStamp">v0.2.0</strong>
+              <small id="boardUpdatedAt" class="support-copy">Board ready.</small>
             </div>
           </div>
           <div class="instructions">
-            <p><b>Keyboard:</b> ← → or A / D to steer, Space / Enter to start, P to pause</p>
-            <p><b>Touch:</b> hold left or right pads, tap center to start or restart</p>
+            <p><b>Touch first:</b> hold left or right pads to steer, tap the center pad to launch or instantly retry.</p>
+            <p><b>Keyboard fallback:</b> ← → or A / D to steer, Space / Enter to start, P to pause.</p>
           </div>
           <div class="button-row">
-            <button id="startButton" class="primary-button">Start engine</button>
-            <button id="shareButton" class="ghost-button">Challenge friend</button>
+            <button id="startButton" class="primary-button">Start run</button>
+            <button id="shareButton" class="ghost-button">Share challenge</button>
           </div>
           <div class="leaderboard-panel">
             <div class="leaderboard-head">
               <h2>Pocket board</h2>
-              <span id="boardMode">local + ready for cloud</span>
+              <span id="boardMode">local board</span>
+            </div>
+            <div class="segmented-control" role="tablist" aria-label="Leaderboard scope">
+              <button id="boardTabAllTime" class="segment-button is-active" type="button">All-time</button>
+              <button id="boardTabDaily" class="segment-button" type="button">Today</button>
             </div>
             <ol id="leaderboardList" class="leaderboard-list"></ol>
           </div>
@@ -88,7 +106,7 @@
         <section id="gameOverScreen" class="screen-card overlay hidden">
           <div class="badge danger">run over</div>
           <h2>Crash logged</h2>
-          <p class="subtitle">You pushed too hard into the traffic stream.</p>
+          <p id="gameOverSubtitle" class="subtitle">You pushed too hard into the traffic stream.</p>
           <div class="stat-grid gameover-stats">
             <div>
               <span>score</span>
@@ -99,10 +117,26 @@
               <strong id="finalBestValue">0</strong>
             </div>
           </div>
+          <div class="stat-grid compact-grid">
+            <div>
+              <span>run readout</span>
+              <strong id="runSummaryValue">0s · 0 near misses</strong>
+              <small id="paceSummary" class="support-copy">Phase 1</small>
+            </div>
+            <div>
+              <span>mission status</span>
+              <strong id="missionResult">Mission waiting</strong>
+              <small id="challengeResult" class="support-copy">Share a score target to challenge a friend.</small>
+            </div>
+          </div>
           <p id="submitStatus" class="status-line">Ready to submit score.</p>
           <div class="button-row">
             <button id="restartButton" class="primary-button">Restart run</button>
             <button id="submitScoreButton" class="ghost-button">Submit score</button>
+          </div>
+          <div class="button-row gameover-secondary-actions">
+            <button id="shareButtonGameOver" class="ghost-button">Challenge friend</button>
+            <button id="backToMenuButton" class="ghost-button">Back to briefing</button>
           </div>
         </section>
 

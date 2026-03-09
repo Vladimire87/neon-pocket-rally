@@ -1,7 +1,16 @@
 import { APP_CONFIG } from './config.js';
 import { APP_STATES, BOARD_SCOPES } from './constants.js';
+import {
+  buildChallengeContext,
+  evaluateChallenge,
+  evaluateMission,
+  formatChallengeText,
+  getDailyMission,
+  getFirstRunMessage,
+} from './product-layer.js';
 import { createStateMachine } from './state-machine.js';
 import { createGameEngine } from '../game/game-engine.js';
+import { getDifficultyPhase } from '../game/balance.js';
 import { createScoringSystem } from '../game/scoring.js';
 import { createSessionRun } from '../game/session-run.js';
 import { createHud } from '../ui/hud.js';
@@ -14,6 +23,7 @@ import { createApiClient } from '../services/api-client.js';
 import { createLeaderboardService } from '../services/leaderboard-service.js';
 import { createRunService } from '../services/run-service.js';
 import { createTelegramApp } from '../telegram/telegram-app.js';
+import { formatDurationMs } from '../utils/format.js';
 
 export async function bootstrap() {
   const logger = createLogger('npr');
@@ -42,6 +52,8 @@ export async function bootstrap() {
     logger,
   });
   const sessionRun = createSessionRun();
+  let currentBoardScope = BOARD_SCOPES.ALL_TIME;
+  let currentChallenge = null;
 
   const machine = createStateMachine(APP_STATES.BOOT, {
     [APP_STATES.BOOT]: [APP_STATES.MENU, APP_STATES.ERROR],
@@ -68,15 +80,31 @@ export async function bootstrap() {
     startBestValue: document.getElementById('startBestValue'),
     playerName: document.getElementById('playerName'),
     leaderboardList: document.getElementById('leaderboardList'),
+    boardTabAllTime: document.getElementById('boardTabAllTime'),
+    boardTabDaily: document.getElementById('boardTabDaily'),
     boardMode: document.getElementById('boardMode'),
     finalScoreValue: document.getElementById('finalScoreValue'),
     finalBestValue: document.getElementById('finalBestValue'),
     submitStatus: document.getElementById('submitStatus'),
     challengeBanner: document.getElementById('challengeBanner'),
     missionSlot: document.getElementById('missionSlot'),
+    missionProgress: document.getElementById('missionProgress'),
     versionStamp: document.getElementById('versionStamp'),
+    boardUpdatedAt: document.getElementById('boardUpdatedAt'),
+    heroBadge: document.getElementById('heroBadge'),
+    heroSubtitle: document.getElementById('heroSubtitle'),
     pauseReason: document.getElementById('pauseReason'),
+    gameOverSubtitle: document.getElementById('gameOverSubtitle'),
+    runSummaryValue: document.getElementById('runSummaryValue'),
+    paceSummary: document.getElementById('paceSummary'),
+    missionResult: document.getElementById('missionResult'),
+    challengeResult: document.getElementById('challengeResult'),
     toast: document.getElementById('toast'),
+    startButton: document.getElementById('startButton'),
+    shareButton: document.getElementById('shareButton'),
+    shareButtonGameOver: document.getElementById('shareButtonGameOver'),
+    backToMenuButton: document.getElementById('backToMenuButton'),
+    submitScoreButton: document.getElementById('submitScoreButton'),
   };
 
   const ctx = elements.canvas.getContext('2d');
@@ -84,6 +112,94 @@ export async function bootstrap() {
   const screens = createScreens(elements);
   const toast = createToast(elements.toast);
   const scoring = createScoringSystem();
+
+  function isSameUtcDay(left, right) {
+    return (
+      left.getUTCFullYear() === right.getUTCFullYear() &&
+      left.getUTCMonth() === right.getUTCMonth() &&
+      left.getUTCDate() === right.getUTCDate()
+    );
+  }
+
+  function getStoredRuns(store = storage.read()) {
+    return Array.isArray(store.runs) ? store.runs : [];
+  }
+
+  function getDailyMissionProgress(store = storage.read()) {
+    const mission = getDailyMission();
+    const today = new Date();
+    const todayRuns = getStoredRuns(store)
+      .filter((run) => run?.at && isSameUtcDay(new Date(run.at), today))
+      .map((run) => evaluateMission(run.summary, today));
+
+    if (!todayRuns.length) {
+      return {
+        missionText: `${mission.title}. ${mission.description}`,
+        progressText: 'No attempt yet today.',
+        completed: false,
+      };
+    }
+
+    const bestAttempt = todayRuns
+      .sort((left, right) => Number(right.completed) - Number(left.completed) || right.progress - left.progress)[0];
+
+    return {
+      missionText: `${mission.title}. ${mission.description}`,
+      progressText: bestAttempt.completed ? `Completed today · ${bestAttempt.progressLabel}` : `Progress · ${bestAttempt.progressLabel}`,
+      completed: bestAttempt.completed,
+    };
+  }
+
+  function buildLocalEntries(store, scope) {
+    const now = new Date();
+    const runs = getStoredRuns(store)
+      .filter((run) => run?.summary?.score >= 0)
+      .filter((run) => scope !== BOARD_SCOPES.DAILY || (run.at && isSameUtcDay(new Date(run.at), now)))
+      .sort((left, right) => right.summary.score - left.summary.score)
+      .slice(0, APP_CONFIG.leaderboard.limit)
+      .map((run, index) => ({
+        rank: index + 1,
+        name: store.profile.name || 'Guest Driver',
+        score: run.summary.score,
+        source: 'local',
+        label: scope === BOARD_SCOPES.DAILY ? `Today · ${formatDurationMs(run.summary.durationMs)}` : `Run · ${new Date(run.at).toLocaleDateString()}`,
+        isCurrentUser: true,
+      }));
+
+    if (runs.length) return runs;
+
+    if (scope === BOARD_SCOPES.ALL_TIME && store.bests.local > 0) {
+      return [
+        {
+          rank: 1,
+          name: store.profile.name || 'Guest Driver',
+          score: store.bests.local,
+          source: 'local',
+          label: 'Your best',
+          isCurrentUser: true,
+        },
+      ];
+    }
+
+    return [];
+  }
+
+  function buildVisibleBoard(store, scope = currentBoardScope) {
+    const remoteEntries = Array.isArray(store.leaderboardCache?.[scope]) ? store.leaderboardCache[scope] : [];
+    if (remoteEntries.length) {
+      return remoteEntries.map((entry) => ({
+        ...entry,
+        label: entry.label || (entry.source === 'remote' ? (scope === BOARD_SCOPES.DAILY ? 'Cloud today' : 'Cloud board') : 'Local run'),
+      }));
+    }
+
+    return buildLocalEntries(store, scope);
+  }
+
+  function boardUpdatedText(store) {
+    if (!store.leaderboardCache?.fetchedAt) return 'Board ready for local play.';
+    return `Updated ${new Date(store.leaderboardCache.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  }
 
   const engine = createGameEngine({
     canvas: elements.canvas,
@@ -94,10 +210,17 @@ export async function bootstrap() {
       const best = Math.max(persisted.bests.local, summary.score);
       persisted = storage.update((state) => {
         state.bests.local = best;
+        state.bests.daily = Math.max(state.bests.daily || 0, summary.score);
         state.profile.lastSeenAt = new Date().toISOString();
+        state.runs = [
+          {
+            at: new Date().toISOString(),
+            summary,
+          },
+          ...(Array.isArray(state.runs) ? state.runs : []),
+        ].slice(0, 24);
         return state;
       });
-      leaderboardService.pushLocalEntry({ name: persisted.profile.name, score: summary.score });
       analytics.track('run_crash', {
         telegram: telegram.isAvailable,
         score: summary.score,
@@ -123,15 +246,27 @@ export async function bootstrap() {
     screens.applyState(machine.getState());
     if (machine.getState() === APP_STATES.MENU) {
       const store = storage.read();
+      const mission = getDailyMissionProgress(store);
+      const boardEntries = buildVisibleBoard(store);
+      const hasRuns = getStoredRuns(store).length > 0 || store.bests.local > 0;
       screens.renderMenu({
         playerName: store.profile.name,
         best: store.bests.local,
-        boardMode: store.leaderboardCache.modeLabel,
-        leaderboardEntries: store.leaderboardCache[BOARD_SCOPES.ALL_TIME],
-        challengeText: readChallengeText(),
-        missionText: 'Daily mission: survive 45s and chain 2 near misses.',
+        boardMode: `${currentBoardScope === BOARD_SCOPES.DAILY ? 'today' : 'all-time'} · ${store.leaderboardCache.modeLabel}`,
+        leaderboardEntries: boardEntries,
+        challengeText: formatChallengeText(currentChallenge, store.profile.name),
+        missionText: mission.missionText,
+        missionProgressText: mission.progressText,
         appVersion: APP_CONFIG.appVersion,
+        heroBadge: getFirstRunMessage(hasRuns),
+        heroSubtitle: currentChallenge
+          ? `Incoming challenge target: ${currentChallenge.targetScore}. Beat it, then share the rematch.`
+          : 'One-thumb score attack built for Telegram. Weave traffic, chain near misses, restart instantly.',
+        boardUpdatedAt: boardUpdatedText(store),
+        activeBoardScope: currentBoardScope,
       });
+      elements.startButton.textContent = hasRuns ? 'Start run' : 'Start first run';
+      elements.shareButton.textContent = currentChallenge ? 'Share rematch' : 'Share challenge';
       hud.hide();
     } else if (machine.getState() === APP_STATES.PLAYING) {
       screens.hideOverlays();
@@ -141,12 +276,30 @@ export async function bootstrap() {
       hud.hide();
     } else if ([APP_STATES.GAMEOVER, APP_STATES.SUBMIT_PENDING].includes(machine.getState())) {
       const submitted = Boolean(sessionRun.get()?.submitted);
+      const isSubmitPending = machine.getState() === APP_STATES.SUBMIT_PENDING;
+      const summary = engine.getSummary();
+      const missionState = evaluateMission(summary);
+      const challengeState = evaluateChallenge(summary, currentChallenge);
+      const phase = getDifficultyPhase(summary.durationMs / 1000);
       screens.renderGameOver({
-        score: engine.getSummary().score,
+        score: summary.score,
         best,
         boardStatus: elements.submitStatus.textContent,
         submitted,
+        summaryText: `${formatDurationMs(summary.durationMs)} · ${summary.nearMissCount} near misses`,
+        paceText: `${phase.label} · avg speed x${summary.averageSpeedBucket}`,
+        missionResult: missionState.completed ? `Mission cleared · ${missionState.progressLabel}` : `Mission progress · ${missionState.progressLabel}`,
+        challengeResult: challengeState.headline,
+        subtitle:
+          summary.score >= best && summary.score > 0
+            ? 'New best pace logged. Lock it in, then throw the challenge back.'
+            : 'Restart is instant. Tighten the line and take another shot.',
       });
+      elements.shareButtonGameOver.textContent = currentChallenge && challengeState.cleared ? 'Share victory' : 'Challenge friend';
+      elements.submitScoreButton.textContent = submitted ? 'Score sent' : 'Submit score';
+      elements.submitScoreButton.disabled = submitted || isSubmitPending;
+      elements.shareButtonGameOver.disabled = isSubmitPending;
+      elements.backToMenuButton.disabled = isSubmitPending;
       hud.hide();
     }
 
@@ -196,13 +349,15 @@ export async function bootstrap() {
   function readChallengeText() {
     const params = new URLSearchParams(window.location.search);
     const challenge = params.get('challenge') || params.get('startapp');
-    if (!challenge) return '';
+    currentChallenge = buildChallengeContext(challenge);
+    if (!currentChallenge) return '';
     analytics.track('challenge_open', { challenge });
-    return `Challenge loaded: beat target ${challenge.replace('challenge_', '')}.`;
+    return currentChallenge.raw;
   }
 
   async function refreshBoard() {
-    const result = await leaderboardService.fetchBoard(BOARD_SCOPES.ALL_TIME);
+    const responses = await Promise.all(APP_CONFIG.leaderboard.scopes.map((scope) => leaderboardService.fetchBoard(scope)));
+    const result = responses.find((entry) => entry.remoteAvailable) || responses[0];
     persisted = storage.read();
     persisted = storage.update((state) => {
       state.leaderboardCache.modeLabel = result.modeLabel;
@@ -220,6 +375,11 @@ export async function bootstrap() {
     elements.submitStatus.textContent = 'Run active. Submit unlocks after crash.';
     machine.transition(APP_STATES.PLAYING);
     telegram.haptic('selectionChanged');
+    render();
+  }
+
+  function openMenu() {
+    machine.transition(APP_STATES.MENU);
     render();
   }
 
@@ -265,14 +425,27 @@ export async function bootstrap() {
     render();
   }
 
-  function shareScore() {
-    analytics.track('share_attempt', { score: storage.read().bests.local });
-    const text = `Beat my Neon Pocket Rally best: ${storage.read().bests.local}.`;
+  async function shareScore() {
+    const summaryScore = machine.getState() === APP_STATES.GAMEOVER ? engine.getSummary().score : storage.read().bests.local;
+    const targetScore = Math.max(summaryScore, currentChallenge?.targetScore || 0, 100);
+    const url = new URL(window.location.href);
+    url.searchParams.set('challenge', String(targetScore));
+    analytics.track('share_attempt', { score: targetScore });
+    const text = `Beat my Neon Pocket Rally score: ${targetScore}.`;
     if (navigator.share) {
-      navigator.share({ title: 'Neon Pocket Rally', text, url: window.location.href }).catch(() => {});
+      navigator.share({ title: 'Neon Pocket Rally', text, url: url.toString() }).catch(() => {});
       return;
     }
-    telegram.showPopup({ title: 'Share challenge', message: text, buttons: [{ type: 'ok' }] });
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(`${text} ${url.toString()}`);
+        toast.show('Challenge link copied.', 'success');
+        return;
+      } catch {
+        logger.warn('clipboard_share_failed');
+      }
+    }
+    telegram.showPopup({ title: 'Share challenge', message: `${text} ${url.toString()}`, buttons: [{ type: 'ok' }] });
   }
 
   function bindSteering(button, direction) {
@@ -303,6 +476,16 @@ export async function bootstrap() {
   document.getElementById('restartButtonPaused').addEventListener('click', startRun);
   document.getElementById('submitScoreButton').addEventListener('click', submitScore);
   document.getElementById('shareButton').addEventListener('click', shareScore);
+  document.getElementById('shareButtonGameOver').addEventListener('click', shareScore);
+  document.getElementById('backToMenuButton').addEventListener('click', openMenu);
+  elements.boardTabAllTime.addEventListener('click', () => {
+    currentBoardScope = BOARD_SCOPES.ALL_TIME;
+    render();
+  });
+  elements.boardTabDaily.addEventListener('click', () => {
+    currentBoardScope = BOARD_SCOPES.DAILY;
+    render();
+  });
   document.getElementById('resumeButton').addEventListener('click', () => {
     engine.resume();
     machine.transition(APP_STATES.PLAYING);
@@ -356,6 +539,7 @@ export async function bootstrap() {
   analytics.track('app_open', { telegram: telegram.isAvailable, deviceBucket: window.innerWidth < 430 ? 'mobile' : 'desktop' });
   analytics.track('telegram_context_detected', { telegram: telegram.isAvailable });
   await hydrateProfile();
+  readChallengeText();
   await refreshBoard();
   machine.transition(APP_STATES.MENU);
   render();

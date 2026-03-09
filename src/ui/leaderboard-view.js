@@ -1,14 +1,27 @@
-import { escapeHtml } from '../utils/format.js';
+import { escapeHtml, formatScore } from '../utils/format.js';
 
 export function renderLeaderboard(listElement, entries = []) {
-  const safeEntries = entries.length
-    ? entries
-    : [{ name: 'No runs yet', score: 0, source: 'local' }];
+  if (!entries.length) {
+    listElement.innerHTML = `
+      <li class="leaderboard-empty">
+        <strong>Board waiting</strong>
+        <div>Run once to seed a local board, or open from Telegram for cloud competition.</div>
+      </li>
+    `;
+    return;
+  }
 
-  listElement.innerHTML = safeEntries
+  listElement.innerHTML = entries
     .map(
       (entry, index) =>
-        `<li><span>#${entry.rank || index + 1} ${escapeHtml(entry.name)}${entry.source === 'remote' ? ' ☁' : ''}</span><strong>${entry.score}</strong></li>`,
+        `<li class="leaderboard-row${entry.isCurrentUser ? ' is-current-user' : ''}">
+          <div class="leaderboard-rank">#${entry.rank || index + 1}</div>
+          <div class="leaderboard-meta">
+            <strong>${escapeHtml(entry.name)}</strong>
+            <small>${escapeHtml(entry.label || (entry.source === 'remote' ? 'Cloud board' : 'Local run'))}</small>
+          </div>
+          <span class="leaderboard-score">${formatScore(entry.score)}</span>
+        </li>`,
     )
     .join('');
 }

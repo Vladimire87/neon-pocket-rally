@@ -6,7 +6,8 @@ export function createRunService({ apiClient, leaderboardService, config, analyt
     const localRunId = `local-${Date.now()}-${runSequence}`;
     const remoteConfig = await leaderboardService.loadConfig();
 
-    if (!remoteConfig.startUrl) {
+    const startUrl = remoteConfig.startUrl || remoteConfig.runStartUrl;
+    if (!startUrl) {
       return {
         runId: localRunId,
         runToken: `guest-${localRunId}`,
@@ -17,7 +18,7 @@ export function createRunService({ apiClient, leaderboardService, config, analyt
     }
 
     try {
-      const response = await apiClient.postJson(remoteConfig.startUrl, { initData, appVersion });
+      const response = await apiClient.postJson(startUrl, { initData, appVersion });
       analytics.track('run_token_acquired', { source: 'remote' });
       return { ...response, source: 'remote', startedAt: Date.now() };
     } catch (error) {
@@ -35,7 +36,8 @@ export function createRunService({ apiClient, leaderboardService, config, analyt
 
   async function finish({ initData, run, summary, appVersion }) {
     const remoteConfig = await leaderboardService.loadConfig();
-    if (!remoteConfig.finishUrl) {
+    const finishUrl = remoteConfig.finishUrl || remoteConfig.submitUrl;
+    if (!finishUrl) {
       return {
         accepted: false,
         fallback: true,
@@ -43,7 +45,7 @@ export function createRunService({ apiClient, leaderboardService, config, analyt
       };
     }
 
-    return apiClient.postJson(remoteConfig.finishUrl, {
+    return apiClient.postJson(finishUrl, {
       initData,
       runId: run.runId,
       runToken: run.runToken,
